@@ -1,0 +1,183 @@
+#!/bin/bash
+#
+#Created by: x57all Powered By HiddenLabs
+#
+#v 1.0.0
+#
+# Change Log:
+#  -
+
+version=1.0.0
+flag_shuffle=0
+flag_ping=0
+flag_output=0
+flag_filter=0
+tempo=1
+OUTPUT_LIST=""
+TMP_FILE=/tmp/shuffle-scan-1.out
+
+
+banner="
+   .-------.    ______
+  /   o   /|   /\\     \\
+ /_______/o|  /o \\  o  \\
+ | o     | | /   o\\_____\\
+ |   o   |o/ \\o   /o    /
+ |     o |/   \\ o/  o  /
+ '-------'     \\/____o/
+  S-H-U-F-F-L-E-S-C-A-N
+  
+$version
+Created by x57all
+Powered by - HiddenLabs
+
++----------------------------+
+"
+echo -e "$banner"
+
+
+while getopts "f:o:hpgst:" opt;do
+    case $opt in
+        f)
+            INPUT_LIST="$OPTARG";;
+
+        o)
+            OUTPUT_LIST="$OPTARG"
+            flag_output=1;;
+
+        s)
+            flag_shuffle=1;;
+        
+        p)
+            flag_ping=1;;
+
+        t)
+            tempo=$OPTARG;;
+
+        g)
+            flag_filter=1;;
+
+        \?)
+              echo "Invalid option: -$OPTARG" >&2
+              exit 1
+              ;;
+
+        :)
+            echo "Flag -$OPTARG requires an argument." >&2
+            exit 1;;
+
+        * | h)
+            echo "Help: "
+            echo "-h This help"
+            echo "-f Insert a input list ex:'192.168.56.1 or 192.168.56.1 225.255.0.0'"
+            echo "-o Insert a output list"
+            echo "-p Ping hosts"
+            echo "-t Set time in seconds of interval pings (Use with '-p')"
+            echo "-s Shuffle hosts"
+            echo "-g Grep only ALIVE hosts"
+            exit 1
+            ;;
+    esac
+done
+
+banner()
+
+if [ ! -f "$INPUT_LIST" ];then
+    echo "Input file not found! "
+    exit 1
+fi
+
+#Pre-clean
+if [ -e $TMP_FILE ];then
+    echo "REMOVENDO"
+    rm -rf $TMP_FILE 2>/dev/null
+fi
+
+while read i;do
+
+    net_ip=$(echo $i | awk '{print $1}')
+    net_mask=$(echo $i | awk '{print $2}')
+
+    if [[ $net_mask == '255.255.255.255' ]];then
+        net_mask=' '
+    fi
+
+    if [ ! -z $net_mask ];then
+        min=$(ipcalc $net_ip $net_mask | grep HostMin | awk '{print $2}')
+        max=$(ipcalc $net_ip $net_mask | grep HostMax | awk '{print $2}')
+
+        min_fi_oc=$(echo $min | cut -d'.' -f 1)
+        min_se_oc=$(echo $min | cut -d'.' -f 2)
+        min_th_oc=$(echo $min | cut -d'.' -f 3)
+        min_fo_oc=$(echo $min | cut -d'.' -f 4)
+        max_fi_oc=$(echo $max | cut -d'.' -f 1)
+        max_se_oc=$(echo $max | cut -d'.' -f 2)
+        max_th_oc=$(echo $max | cut -d'.' -f 3)
+        max_fo_oc=$(echo $max | cut -d'.' -f 4)
+
+        for (( q=$min_fo_oc;q<=$max_fo_oc;q++ )); do
+            for (( t=$min_th_oc;t<=max_th_oc;t++ )); do
+                for (( s=$min_se_oc;s<=max_se_oc;s++)); do
+                    for (( p=$min_fi_oc;p<=max_fi_oc;p++)); do
+                        echo $p.$s.$t.$q | tee -a $TMP_FILE
+                    done
+                done
+            done
+        done
+
+    else
+        echo $net_ip | tee -a $TMP_FILE
+    fi
+
+done < "${INPUT_LIST}"
+
+
+if [ $flag_output -eq 1 ];then
+    touch $OUTPUT_LIST
+fi
+
+
+if [ $flag_shuffle -eq 1 ];then
+    echo "SHUFFLE-LIST"
+    if [ $flag_output -eq 1 ];then
+        shuf $TMP_FILE -o $TMP_FILE
+        cat $TMP_FILE
+
+    else
+        shuf $TMP_FILE -o $TMP_FILE
+        cat $TMP_FILE
+    fi
+fi
+
+
+if [ $flag_ping -eq 1 ];then
+
+    echo "RED PING"
+    while read line;do
+        nohup fping $line -a -d -A -R -c 2 2>>result.txt 1>&2
+        sleep $tempo
+    done < "$TMP_FILE"
+    
+    if [ $flag_output -eq 1 ];then
+        mv ./result.txt $OUTPUT_LIST
+        echo "$OUTPUT_LIST created."
+    fi
+
+    if [ -e "result.txt" ];then
+        echo "result.txt created."
+    fi
+fi
+
+
+if [ $flag_filter -eq 1 ];then
+    if [ $flag_output -eq 1 ];then
+        egrep -v '%loss = 2/0/100%' $OUTPUT_LIST > $TMP_FILE
+        cut -d' ' -f1,2 $TMP_FILE | sed 's/$/ ALIVE/' > $OUTPUT_LIST
+    else
+        egrep -v '%loss = 2/0/100%' result.txt > $TMP_FILE
+        cut -d' ' -f1,2 $TMP_FILE | sed 's/$/ ALIVE/' > result.txt
+    fi
+fi
+
+#Pos-Clean
+rm -rf $TMP_FILE 2>/dev/null
